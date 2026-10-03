@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.8.19 — organization release updater migration
+
+- Moved the in-app GitHub release API, web fallback and APK download URLs to the canonical `KaGon-Digital-Media-And-Commerce/PeptideTracker` repository.
+- Updated release URL regression tests so the app no longer depends on the retired personal-owner repository path.
+- Kept APK version/package/signing verification and Play Store update behavior unchanged.
+- Increased app version to 4.8.19 (versionCode 52).
+
 ## 4.8.18 — floating glass bottom navigation
 
 - Restored the rounded glass background, border radius and border of the in-app bottom navigation.

@@ -37,12 +37,12 @@ class GitHubUpdateCheckerTest {
         assertEquals(
             "v4.8.11",
             GitHubUpdateChecker.extractReleaseTag(
-                "https://github.com/spiros-g/PeptideTracker/releases/tag/v4.8.11"
+                "https://github.com/KaGon-Digital-Media-And-Commerce/PeptideTracker/releases/tag/v4.8.11"
             )
         )
         assertNull(
             GitHubUpdateChecker.extractReleaseTag(
-                "https://github.com/spiros-g/PeptideTracker/releases/latest"
+                "https://github.com/KaGon-Digital-Media-And-Commerce/PeptideTracker/releases/latest"
             )
         )
     }
@@ -50,7 +50,7 @@ class GitHubUpdateCheckerTest {
     @Test
     fun buildsDeterministicFallbackApkUrl() {
         assertEquals(
-            "https://github.com/spiros-g/PeptideTracker/releases/download/v4.8.11/PeptideTracker-v4.8.11.apk",
+            "https://github.com/KaGon-Digital-Media-And-Commerce/PeptideTracker/releases/download/v4.8.11/PeptideTracker-v4.8.11.apk",
             GitHubUpdateChecker.buildFallbackApkUrl("v4.8.11")
         )
     }

@@ -25,11 +25,11 @@ sealed interface AppUpdateCheckResult {
 
 object GitHubUpdateChecker {
     private const val LATEST_RELEASE_API =
-        "https://api.github.com/repos/spiros-g/PeptideTracker/releases/latest"
+        "https://api.github.com/repos/KaGon-Digital-Media-And-Commerce/PeptideTracker/releases/latest"
     private const val LATEST_RELEASE_WEB =
-        "https://github.com/spiros-g/PeptideTracker/releases/latest"
+        "https://github.com/KaGon-Digital-Media-And-Commerce/PeptideTracker/releases/latest"
     private const val RELEASE_DOWNLOAD_BASE =
-        "https://github.com/spiros-g/PeptideTracker/releases/download"
+        "https://github.com/KaGon-Digital-Media-And-Commerce/PeptideTracker/releases/download"
     private const val PLAY_STORE_INSTALLER = "com.android.vending"
 
     suspend fun check(currentVersion: String): AppUpdateInfo? =
