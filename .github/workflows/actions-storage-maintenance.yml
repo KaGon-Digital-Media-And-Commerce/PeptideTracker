@@ -1,0 +1,118 @@
+name: Actions storage maintenance
+
+on:
+  workflow_call:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  cleanup:
+    name: Remove old Actions history and caches
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: write
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      CURRENT_RUN_ID: ${{ github.run_id }}
+    steps:
+      - name: Prune completed runs older than one day and caches unused for 30 days
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const api = process.env.GITHUB_API_URL || 'https://api.github.com';
+          const repo = process.env.GITHUB_REPOSITORY;
+          const token = process.env.GITHUB_TOKEN;
+          const currentRunId = process.env.CURRENT_RUN_ID;
+          const day = 24 * 60 * 60 * 1000;
+          const runCutoff = Date.now() - day;
+          const cacheCutoff = Date.now() - 30 * day;
+          const headers = {
+            Accept: 'application/vnd.github+json',
+            Authorization: 'Bearer ' + token,
+            'X-GitHub-Api-Version': '2022-11-28',
+            'User-Agent': 'global-actions-storage-maintenance',
+          };
+          const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+          async function request(method, path) {
+            for (let attempt = 0; attempt < 6; attempt += 1) {
+              let response;
+              try {
+                response = await fetch(api + '/repos/' + repo + path, { method, headers });
+              } catch (error) {
+                if (attempt === 5) throw error;
+                await wait(Math.min(30_000, 1_000 * (2 ** attempt)));
+                continue;
+              }
+
+              const body = response.status === 204 ? '' : await response.text();
+              if (response.ok) return body ? JSON.parse(body) : null;
+              if (response.status === 404 && method === 'DELETE') return null;
+
+              const rateLimited = response.status === 429
+                || (response.status === 403 && (
+                  response.headers.get('x-ratelimit-remaining') === '0'
+                  || body.toLowerCase().includes('secondary rate limit')
+                  || body.toLowerCase().includes('rate limit exceeded')
+                ));
+              const transient = response.status >= 500;
+              if ((rateLimited || transient) && attempt < 5) {
+                const retryAfter = Number(response.headers.get('retry-after'));
+                const resetAt = Number(response.headers.get('x-ratelimit-reset'));
+                let delay = Math.min(30_000, 1_000 * (2 ** attempt));
+                if (retryAfter > 0) delay = Math.max(delay, retryAfter * 1_000);
+                if (rateLimited && response.headers.get('x-ratelimit-remaining') === '0' && resetAt > 0) {
+                  delay = Math.max(delay, resetAt * 1_000 - Date.now() + 1_000);
+                }
+                await wait(Math.max(1_000, delay));
+                continue;
+              }
+              throw new Error(method + ' ' + path + ' failed with HTTP ' + response.status);
+            }
+            throw new Error(method + ' ' + path + ' failed after retries');
+          }
+
+          async function listAll(path, key) {
+            const items = [];
+            for (let page = 1; ; page += 1) {
+              const separator = path.includes('?') ? '&' : '?';
+              const result = await request('GET', path + separator + 'per_page=100&page=' + page);
+              const pageItems = result?.[key] || [];
+              items.push(...pageItems);
+              if (pageItems.length < 100) return items;
+            }
+          }
+
+          const runs = await listAll('/actions/runs?status=completed', 'workflow_runs');
+          const oldRuns = runs.filter((run) => (
+            String(run.id) !== currentRunId
+            && Date.parse(run.created_at) < runCutoff
+          ));
+          let deletedRuns = 0;
+          for (const run of oldRuns) {
+            await request('DELETE', '/actions/runs/' + run.id);
+            deletedRuns += 1;
+            await wait(200);
+          }
+
+          const caches = await listAll('/actions/caches', 'actions_caches');
+          const staleCaches = caches.filter((cache) => (
+            cache.last_accessed_at
+            && Date.parse(cache.last_accessed_at) < cacheCutoff
+          ));
+          let deletedCaches = 0;
+          for (const cache of staleCaches) {
+            await request('DELETE', '/actions/caches/' + cache.id);
+            deletedCaches += 1;
+            await wait(200);
+          }
+
+          console.log('Deleted ' + deletedRuns + ' completed workflow runs and ' + deletedCaches + ' stale caches.');
+          NODE

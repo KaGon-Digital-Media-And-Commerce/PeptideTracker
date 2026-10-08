@@ -144,18 +144,6 @@ jobs:
           cp app/build/outputs/bundle/release/app-release.aab "PeptideTracker-${RELEASE_TAG}.aab"
           sha256sum "PeptideTracker-${RELEASE_TAG}.apk" "PeptideTracker-${RELEASE_TAG}.aab" > SHA256SUMS.txt
 
-      - name: Upload signed APK artifact
-        if: env.SHOULD_RELEASE == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: PeptideTracker-${{ env.RELEASE_TAG }}-signed
-          path: |
-            PeptideTracker-${{ env.RELEASE_TAG }}.apk
-            PeptideTracker-${{ env.RELEASE_TAG }}.aab
-            SHA256SUMS.txt
-          if-no-files-found: error
-          retention-days: 30
-
       - name: Publish GitHub Release
         if: env.SHOULD_RELEASE == 'true'
         env:
