@@ -1,0 +1,77 @@
+name: One-time cleanup of old Actions artifacts
+
+on:
+  push:
+    branches:
+      - maintenance/artifact-cleanup-20261011
+    paths:
+      - .github/workflows/temporary-artifact-cleanup-20261011.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  purge-old-artifacts:
+    name: Remove old build artifacts only
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Delete expired and old workflow artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cutoff=$(date -u -d '48 hours ago' +%s)
+          list=$(mktemp)
+          page=1
+          while :; do
+            payload=$(curl --fail --silent --show-error --retry 3 \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100&page=$page")
+            count=$(jq '.artifacts | length' <<< "$payload")
+            jq -rc '.artifacts[] | {id, name, created_at, size_in_bytes, expired}' <<< "$payload" >> "$list"
+            if (( count < 100 )); then break; fi
+            page=$((page+1))
+          done
+          echo "Found $(wc -l < "$list") artifacts in $GITHUB_REPOSITORY"
+          removed=0
+          bytes=0
+          preserved=0
+          while IFS= read -r entry; do
+            id=$(jq -r '.id' <<< "$entry")
+            name=$(jq -r '.name' <<< "$entry")
+            size=$(jq -r '.size_in_bytes // 0' <<< "$entry")
+            created=$(jq -r '.created_at' <<< "$entry")
+            expired=$(jq -r '.expired' <<< "$entry")
+            timestamp=$(date -u -d "$created" +%s)
+            # Keep new QA evidence and deliberately named production backups.
+            if [[ "$expired" != true && "$timestamp" -ge "$cutoff" ]]; then
+              preserved=$((preserved+1))
+              continue
+            fi
+            case "${name,,}" in
+              *release*|*backup*|*production*)
+                preserved=$((preserved+1))
+                continue
+                ;;
+            esac
+            status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+              --retry 3 -X DELETE \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$id")
+            if [[ "$status" != 204 ]]; then
+              echo "::error::Could not delete artifact $id ($name): HTTP $status"
+              exit 1
+            fi
+            removed=$((removed+1))
+            bytes=$((bytes+size))
+            echo "Deleted artifact $id ($name, $size bytes)"
+          done < "$list"
+          echo "Deleted $removed artifacts; estimated freed bytes: $bytes; kept $preserved."
+          echo "Storage quota may take 6–12 hours to recalculate."
